@@ -1,295 +1,186 @@
-let screws = [];
-let planks = [];
-let holes = [];
-let screwStock = 0; // 手持ちのねじの数
-
-let currentStage = 1;
-let maxStages = 3;
-let stageCleared = false;
+let player;
+let bullets = [];
+let enemies = [];
+let score = 0;
+let gameOver = false;
+let spawnTimer = 0;
 
 function setup() {
   createCanvas(400, 600);
-  loadStage(currentStage);
+  player = new Player();
 }
 
 function draw() {
-  background(40);
-  
-  // UIの表示
-  fill(255);
-  textSize(18);
-  textAlign(LEFT, TOP);
-  text("Stage: " + currentStage, 15, 15);
-  
-  // 所持ねじの数を視覚的に表示
-  text("Screws:", 15, 45);
-  for(let i=0; i<screwStock; i++) {
-    fill(230, 190, 60);
-    ellipse(100 + i*20, 53, 14);
-  }
+  background(20);
 
-  // すべての板が落ちたかチェック
-  if (!stageCleared && checkStageClear()) {
-    stageCleared = true;
-  }
-
-  // ステージクリア画面
-  if (stageCleared) {
-    fill(0, 0, 0, 150);
-    rectMode(CORNER);
-    rect(0, 0, width, height);
-    
+  if (gameOver) {
+    // ゲームオーバー画面
     fill(255);
+    textSize(32);
     textAlign(CENTER, CENTER);
-    if (currentStage < maxStages) {
-      textSize(32);
-      text("STAGE CLEARED!", width / 2, height / 2 - 20);
-      textSize(18);
-      text("Click to Next Stage", width / 2, height / 2 + 30);
-    } else {
-      textSize(36);
-      fill(255, 215, 0);
-      text("ALL STAGES CLEAR!!", width / 2, height / 2);
-    }
+    text("GAME OVER", width / 2, height / 2 - 20);
+    textSize(18);
+    text("Score: " + score, width / 2, height / 2 + 20);
+    text("Click to Restart", width / 2, height / 2 + 60);
     return;
   }
 
-  // ねじ穴の描画
-  for (let h of holes) {
-    h.display();
+  // スコア表示
+  fill(255);
+  textSize(20);
+  textAlign(LEFT, TOP);
+  text("Score: " + score, 10, 10);
+
+  // プレイヤーの更新と描画
+  player.update();
+  player.display();
+
+  // 【調整】マウスを押しっぱなしにしている間、6フレームに1回自動で弾を発射（オート連射）
+  if (mouseIsPressed && frameCount % 6 === 0) {
+    bullets.push(new Bullet(player.x, player.y));
   }
 
-  // 板の更新と描画
-  for (let plank of planks) {
-    plank.update(screws);
-    plank.display();
+  // ブロックを生成するタイマー（少しのんびり出てくるように変更）
+  spawnTimer++;
+  if (spawnTimer >= 50) { 
+    enemies.push(new Enemy());
+    spawnTimer = 0;
   }
 
-  // ねじの描画
-  for (let screw of screws) {
-    screw.display();
-  }
-}
+  // 弾の更新と描画
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    bullets[i].update();
+    bullets[i].display();
 
-// すべての板が画面下に落ちたかを判定する関数
-function checkStageClear() {
-  if (planks.length === 0) return false;
-  for (let plank of planks) {
-    // 板の両端が画面より下に行っていない場合はクリアではない
-    if (plank.y1 < height || plank.y2 < height) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// クリック時の処理
-function mousePressed() {
-  if (stageCleared) {
-    if (currentStage < maxStages) {
-      currentStage++;
-      loadStage(currentStage);
-    }
-    return;
-  }
-
-  // 1. まず刺さっているねじのクリック判定（引き抜く）
-  for (let i = screws.length - 1; i >= 0; i--) {
-    if (screws[i].isClicked(mouseX, mouseY)) {
-      // ねじを消してストックを増やす
-      screws.splice(i, 1);
-      screwStock++;
-      return; // 1回のアクションで1つだけ
+    if (bullets[i].isOffscreen()) {
+      bullets.splice(i, 1);
     }
   }
 
-  // 2. 手持ちにねじがある場合、空いている穴のクリック判定（ハメる）
-  if (screwStock > 0) {
-    for (let h of holes) {
-      if (h.isClicked(mouseX, mouseY)) {
-        // すでにそこにねじがないかチェック
-        let alreadyHasScrew = screws.some(s => dist(s.x, s.y, h.x, h.y) < 5);
-        if (!alreadyHasScrew) {
-          screws.push(new Screw(h.x, h.y, h.id));
-          screwStock--;
-          return;
+  // 敵の更新と描画、および衝突判定
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    enemies[i].update();
+    enemies[i].display();
+
+    // プレイヤーとの衝突、または画面の一番下まで届いたらゲームオーバー
+    if (enemies[i].hitsPlayer(player) || enemies[i].y > height) {
+      gameOver = true;
+    }
+
+    // 弾との衝突判定
+    for (let j = bullets.length - 1; j >= 0; j--) {
+      if (enemies[i].hitsBullet(bullets[j])) {
+        enemies[i].hp--; 
+        bullets.splice(j, 1); 
+
+        if (enemies[i].hp <= 0) {
+          score += 1; // 1ブロック撃破で1点
+          enemies.splice(i, 1); 
         }
+        break; 
       }
     }
   }
 }
 
-// --- ステージ生成 ---
-function loadStage(stageNum) {
-  screws = [];
-  planks = [];
-  holes = [];
-  screwStock = 0;
-  stageCleared = false;
-
-  if (stageNum === 1) {
-    // 【ステージ1: 基本のおさらい】
-    // 穴の配置
-    holes.push(new Hole(120, 200, 1));
-    holes.push(new Hole(280, 200, 2));
-    holes.push(new Hole(200, 350, 3));
-    holes.push(new Hole(200, 450, 4)); // 空の予備穴
-    
-    // 初期ねじ（穴1, 2, 3に刺さっている）
-    screws.push(new Screw(120, 200, 1));
-    screws.push(new Screw(280, 200, 2));
-    screws.push(new Screw(200, 350, 3));
-
-    // 板(初期X1, 初期Y1, 初期X2, 初期Y2, 依存する穴ID1, 依存する穴ID2)
-    planks.push(new Plank(120, 200, 280, 200, 1, 2));
-    planks.push(new Plank(200, 350, 200, 450, 3, null)); // 下の穴は最初空いている
-    
-  } else if (stageNum === 2) {
-    // 【ステージ2: T字の連動（片方を外すと回転してもう片方に引っかかる）】
-    holes.push(new Hole(100, 250, 1));
-    holes.push(new Hole(300, 250, 2));
-    holes.push(new Hole(200, 150, 3)); // 中央上の穴
-    holes.push(new Hole(200, 350, 4)); // 中央下の予備穴
-    
-    screws.push(new Screw(100, 250, 1));
-    screws.push(new Screw(300, 250, 2));
-
-    // クロスする2つの板
-    planks.push(new Plank(100, 250, 300, 250, 1, 2));
-    planks.push(new Plank(200, 150, 200, 350, null, null)); // この板はねじをハメないと落ちない
-    screwStock = 1; // 最初から1個ねじを持った状態
-    
-  } else if (stageNum === 3) {
-    // 【ステージ3: パズル（ねじの数が足りない！）】
-    holes.push(new Hole(80, 200, 1));
-    holes.push(new Hole(200, 200, 2));
-    holes.push(new Hole(320, 200, 3));
-    holes.push(new Hole(140, 350, 4));
-    holes.push(new Hole(260, 350, 5));
-
-    // 穴は5つあるが、ねじは2つだけ！
-    screws.push(new Screw(80, 200, 1));
-    screws.push(new Screw(320, 200, 3));
-
-    // 3枚の板が重なり合っているイメージ
-    planks.push(new Plank(80, 200, 200, 200, 1, 2));
-    planks.push(new Plank(200, 200, 320, 200, 2, 3));
-    planks.push(new Plank(140, 350, 260, 350, 4, 5));
+// ゲームオーバー時のリスタート用クリック判定
+function mousePressed() {
+  if (gameOver) {
+    restartGame();
   }
+}
+
+function restartGame() {
+  bullets = [];
+  enemies = [];
+  score = 0;
+  gameOver = false;
+  spawnTimer = 0;
+  player = new Player();
 }
 
 // --- クラス定義 ---
 
-// ねじ穴クラス
-class Hole {
-  constructor(x, y, id) {
-    this.x = x;
-    this.y = y;
-    this.id = id;
-    this.size = 20;
+class Player {
+  constructor() {
+    this.x = width / 2;
+    this.y = height - 50;
+    this.size = 30;
   }
+
+  update() {
+    this.x = constrain(mouseX, this.size / 2, width - this.size / 2);
+  }
+
   display() {
-    fill(20);
-    stroke(80);
-    strokeWeight(2);
-    ellipse(this.x, this.y, this.size);
-  }
-  isClicked(mx, my) {
-    return dist(mx, my, this.x, this.y) < this.size / 2 + 5;
+    fill(0, 200, 255);
+    noStroke();
+    rectMode(CENTER);
+    rect(this.x, this.y, this.size, this.size, 5);
   }
 }
 
-// ねじクラス
-class Screw {
-  constructor(x, y, holeId) {
+class Bullet {
+  constructor(x, y) {
     this.x = x;
     this.y = y;
-    this.holeId = holeId; // どの穴に刺さっているか
-    this.size = 24;
+    this.speed = 10; // 【調整】弾の速度を少しアップして当てやすく
+    this.size = 8;
   }
+
+  update() {
+    this.y -= this.speed;
+  }
+
   display() {
-    stroke(130, 100, 30);
-    strokeWeight(2);
-    fill(230, 190, 60); 
+    fill(255, 255, 0);
+    noStroke();
     ellipse(this.x, this.y, this.size);
-    stroke(100, 80, 20);
-    line(this.x - 5, this.y, this.x + 5, this.y);
-    line(this.x, this.y - 5, this.x, this.y + 5);
   }
-  isClicked(mx, my) {
-    return dist(mx, my, this.x, this.y) < this.size / 2;
+
+  isOffscreen() {
+    return this.y < 0;
   }
 }
 
-// 板クラス
-class Plank {
-  constructor(x1, y1, x2, y2, h1, h2) {
-    this.h1 = h1; // 結合する穴のID1
-    this.h2 = h2; // 結合する穴のID2
-    this.x1 = x1;
-    this.y1 = y1;
-    this.x2 = x2;
-    this.y2 = y2;
-    this.w = 26; 
-    this.angle = 0;
-    this.fallSpeed = 0;
-    this.initialLen = dist(x1, y1, x2, y2);
-  }
-
-  update(screws) {
-    // 現在この板の穴の位置にねじがあるかリアルタイムチェック
-    let screw1 = screws.find(s => s.x === this.x1 && s.y === this.y1);
-    let screw2 = screws.find(s => s.x === this.x2 && s.y === this.y2);
-
-    // ハメ直しに対応するため、板の近くにあるねじを検知する
-    if (!screw1) screw1 = screws.find(s => dist(s.x, s.y, this.x1, this.y1) < 15);
-    if (!screw2) screw2 = screws.find(s => dist(s.x, s.y, this.x2, this.y2) < 15);
-
-    if (screw1 && screw2) {
-      // 両方固定
-      this.x1 = screw1.x;
-      this.y1 = screw1.y;
-      this.x2 = screw2.x;
-      this.y2 = screw2.y;
-      this.fallSpeed = 0;
-    } 
-    else if (screw1 && !screw2) {
-      // ねじ1のみ固定（ねじ1を中心に下へ回転）
-      this.x1 = screw1.x;
-      this.y1 = screw1.y;
-      let targetAngle = HALF_PI; 
-      this.angle = lerp(this.angle, targetAngle, 0.1);
-      this.x2 = this.x1 + cos(this.angle) * this.initialLen;
-      this.y2 = this.y1 + sin(this.angle) * this.initialLen;
-    } 
-    else if (!screw1 && screw2) {
-      // ねじ2のみ固定（ねじ2を中心に下へ回転）
-      this.x2 = screw2.x;
-      this.y2 = screw2.y;
-      let targetAngle = HALF_PI;
-      this.angle = lerp(this.angle, targetAngle, 0.1);
-      this.x1 = this.x2 - cos(this.angle) * this.initialLen;
-      this.y1 = this.y2 + sin(this.angle) * this.initialLen;
-    } 
-    else {
-      // 自由落下
-      this.fallSpeed += 0.4;
-      this.y1 += this.fallSpeed;
-      this.y2 += this.fallSpeed;
-    }
-  }
-
-  display() {
-    stroke(100);
-    fill(100, 150, 245, 200); 
-    strokeWeight(this.w);
-    strokeCap(ROUND);
-    line(this.x1, this.y1, this.x2, this.y2);
+class Enemy {
+  constructor() {
+    this.size = random(35, 55);
+    this.x = random(this.size / 2, width - this.size / 2);
+    this.y = -this.size;
     
-    // 板の両端の穴の位置を分かりやすく描画
-    strokeWeight(1);
-    fill(255, 100);
-    ellipse(this.x1, this.y1, 10);
-    ellipse(this.x2, this.y2, 10);
+    // 【調整】落ちてくるスピードを「1〜2」のゆっくりに固定
+    this.speed = random(1.0, 2.0);
+    
+    // 【調整】ブロックのHPを「1〜3」の低めに固定
+    this.hp = floor(random(1, 4)); 
+  }
+
+  update() {
+    this.y += this.speed;
+  }
+
+  display() {
+    stroke(255);
+    strokeWeight(2);
+    fill(150, 50, 200); 
+    rectMode(CENTER);
+    rect(this.x, this.y, this.size, this.size, 4);
+
+    fill(255);
+    noStroke();
+    textSize(16);
+    textAlign(CENTER, CENTER);
+    text(this.hp, this.x, this.y);
+  }
+
+  hitsBullet(bullet) {
+    let d = dist(this.x, this.y, bullet.x, bullet.y);
+    return d < (this.size / 2 + bullet.size / 2);
+  }
+
+  hitsPlayer(player) {
+    let d = dist(this.x, this.y, player.x, player.y);
+    return d < (this.size / 2 + player.size / 2);
   }
 }
